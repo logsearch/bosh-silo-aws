@@ -1,0 +1,36 @@
+{
+  "Parameters" : [
+    {
+      "ParameterKey" : "Name",
+      "ParameterValue" : "bosh-silo"
+    },
+    {
+      "ParameterKey" : "KnownNetwork",
+      "ParameterValue" : "127.0.0.1/32"
+    },
+    {
+      "ParameterKey" : "KeyPath",
+      "ParameterValue" : "~/.ssh/id_rsa"
+    },
+    {
+      "ParameterKey" : "AvailabilityZone",
+      "ParameterValue" : "us-east-1a"
+    },
+    {
+      "ParameterKey" : "PeerVpcNetwork",
+      "ParameterValue" : "10.0.0.0/20"
+    },
+    {
+      "ParameterKey" : "PeerVpcId",
+      "ParameterValue" : "vpc-a1b2c3d4"
+    },
+    {
+      "ParameterKey" : "UbuntuHvmAmi",
+      "ParameterValue" : "ami-a1b2c3d4"
+    },
+    {
+      "ParameterKey" : "KeyName",
+      "ParameterValue" : "default"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -e
+set -u
+
+source .env
+
+for DEPLOYMENT in $( bosh deployments | grep -e '^| [^ ]' | awk '{ print $2 }' | grep -v '^Name$' ) ; do
+  silobosh -n delete deployment "${DEPLOYMENT}"
+done
+
+bosh-init delete bosh.yml
+
+aws cloudformation delete-stack --stack-name="${SILO_Name}"

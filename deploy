@@ -1,0 +1,321 @@
+#!/bin/bash
+
+# args: stack-name
+
+set -e
+set -u
+shopt -s expand_aliases
+
+# need this early
+SILO_Name=$( cat cloudformation-config.json | jq -r '.Parameters[] | select(.ParameterKey == "Name") | .ParameterValue' )
+
+#
+# provision cloudformation
+#
+
+if ! aws cloudformation describe-stacks --stack-name="${SILO_Name}" > /dev/null ; then
+  CFNCMD=create-stack
+else
+  CFNCMD=update-stack
+fi
+
+RESULT=$(
+  aws cloudformation "${CFNCMD}" \
+    --stack-name "${SILO_Name}" \
+    --template-body "file://${PWD}/cloudformation.json" \
+    --capabilities CAPABILITY_IAM \
+    --cli-input-json "file://${PWD}/cloudformation-config.json" \
+    2>&1 \
+    || true
+)
+
+if [[ "${RESULT}" =~ "No updates are to be performed." ]] ; then
+  true
+else
+  echo "${RESULT}"
+
+  STATUS=UNKNOWN
+
+  while [[ ! "$STATUS" =~ /_COMPLETE$/ ]] ; do
+    STATUS=$( aws cloudformation describe-stacks --stack-name="${SILO_Name}" --query 'Stacks[0].StackStatus' --output text)
+  done
+fi
+
+
+#
+# pull the latest cloudformation details
+#
+
+(
+  aws cloudformation describe-stack-resources --stack-name="${SILO_Name}" \
+    | jq -r '.StackResources|map("SILO_" + .LogicalResourceId + "Id=" + .PhysicalResourceId)[]'
+  
+  aws ec2 describe-security-groups --filters Name=tag-key,Values=aws:cloudformation:stack-name Name=tag-value,Values=${SILO_Name} \
+    | jq -r '.SecurityGroups[] | { "name" : .GroupName, "tags" : .Tags | map({ "key" : .Key, "value" : .Value }) | from_entries } | "SILO_" + .tags["aws:cloudformation:logical-id"] + "Name=" + .name'
+
+  aws cloudformation describe-stacks --stack-name="${SILO_Name}" \
+    | jq -r '.Stacks[0].Outputs|map("SILO_" + .OutputKey + "=" + .OutputValue)[]'
+
+  aws cloudformation describe-stacks --stack-name="${SILO_Name}" \
+    | jq -r '.Stacks[0].Parameters|map("SILO_" + .ParameterKey + "=" + .ParameterValue)[]'
+) >> .env
+
+source .env
+
+
+#
+# create an authentication token if we need one
+#
+
+if [[ "${SILO_BoshUserAccessKeyId:-}" == "" ]] ; then
+  AWS_CREDENTIAL=$( aws iam create-access-key --user-name="${SILO_BoshUserId}" )
+  
+  SILO_BoshUserAccessKeyId=$( echo "${AWS_CREDENTIAL}" | jq -r '.AccessKey.AccessKeyId' )
+  SILO_BoshUserSecretAccessKey=$( echo "${AWS_CREDENTIAL}" | jq -r '.AccessKey.SecretAccessKey' )
+fi
+
+
+#
+# clean up our environment file and "reload"
+#
+
+(
+  echo "alias silobosh='bosh -t https://192.168.170.5:25555 -u admin -p admin'" ;
+  set | grep '^SILO_'
+) > .env
+
+source .env
+
+
+#
+# deploy our director configuration
+#
+
+cat > bosh.yml <<YAML
+---
+name: bosh
+
+releases:
+- name: bosh
+  url: https://bosh.io/d/github.com/cloudfoundry/bosh?v=168
+  sha1: 57320a93a7a15e51af4c57d9d9c22706c45c9953
+- name: bosh-aws-cpi
+  url: https://bosh.io/d/github.com/cloudfoundry-incubator/bosh-aws-cpi-release?v=23
+  sha1: ab59abfd5baffefef735e41c6b680778112e8818
+
+resource_pools:
+- name: vms
+  network: private
+  stemcell:
+    url: https://bosh.io/d/stemcells/bosh-aws-xen-hvm-ubuntu-trusty-go_agent?v=2977
+    sha1: 80a633331b331ac8e031e09ba86b789fb0459754
+  cloud_properties:
+    instance_type: t2.micro
+    ephemeral_disk:
+      size: 8192
+      type: standard
+    availability_zone: ${SILO_AvailabilityZone}
+
+disk_pools:
+- name: disks
+  disk_size: 16384
+  cloud_properties:
+    type: standard
+
+networks:
+- name: private
+  type: manual
+  subnets:
+  - range: 192.168.170.0/24
+    gateway: 192.168.170.1
+    dns:
+    - 192.168.170.1
+    cloud_properties:
+      subnet: ${SILO_PublicSubnetId}
+- name: public
+  type: vip
+
+jobs:
+- name: bosh
+  instances: 1
+
+  templates:
+  - {name: nats, release: bosh}
+  - {name: redis, release: bosh}
+  - {name: postgres, release: bosh}
+  - {name: blobstore, release: bosh}
+  - {name: director, release: bosh}
+  - {name: health_monitor, release: bosh}
+  - {name: registry, release: bosh}
+  - {name: cpi, release: bosh-aws-cpi}
+
+  resource_pool: vms
+  persistent_disk_pool: disks
+
+  networks:
+  - name: private
+    static_ips: [192.168.170.5]
+
+  properties:
+    nats:
+      address: 127.0.0.1
+      user: nats
+      password: nats-password
+
+    redis:
+      listen_addresss: 127.0.0.1
+      address: 127.0.0.1
+      password: redis-password
+
+    postgres: &db
+      host: 127.0.0.1
+      user: postgres
+      password: postgres-password
+      database: bosh
+      adapter: postgres
+
+    registry:
+      address: 192.168.170.5
+      host: 192.168.170.5
+      db: *db
+      http: {user: admin, password: admin, port: 25777}
+      username: admin
+      password: admin
+      port: 25777
+
+    blobstore:
+      address: 192.168.170.5
+      port: 25250
+      provider: dav
+      director: {user: director, password: director-password}
+      agent: {user: agent, password: agent-password}
+
+    director:
+      address: 127.0.0.1
+      name: my-bosh
+      db: *db
+      cpi_job: cpi
+      max_threads: 10
+
+    hm:
+      http: {user: hm, password: hm-password}
+      director_account: {user: admin, password: admin}
+      resurrector_enabled: true
+
+    aws: &aws
+      access_key_id: ${SILO_BoshUserAccessKeyId}
+      secret_access_key: "${SILO_BoshUserSecretAccessKey}"
+      default_key_name: ${SILO_KeyName}
+      default_security_groups:
+      - ${SILO_SecuritygroupGlobalKnownNetworkName}
+      - ${SILO_SecuritygroupGlobalLocalAllName}
+      region: ${AWS_DEFAULT_REGION}
+
+    agent: {mbus: "nats://nats:nats-password@192.168.170.5:4222"}
+
+    ntp: &ntp [0.pool.ntp.org, 1.pool.ntp.org]
+
+cloud_provider:
+  template: {name: cpi, release: bosh-aws-cpi}
+
+  ssh_tunnel:
+    host: 192.168.170.5
+    port: 22
+    user: vcap
+    private_key: ${SILO_KeyPath}
+
+  mbus: "https://mbus:mbus-password@192.168.170.5:6868"
+
+  properties:
+    aws: *aws
+    agent: {mbus: "https://mbus:mbus-password@0.0.0.0:6868"}
+    blobstore: {provider: local, path: /var/vcap/micro_bosh/data/cache}
+    ntp: *ntp
+YAML
+
+bosh-init deploy bosh.yml
+
+#
+# persist our networks and resource pools
+#
+
+cat > cloud-config.yml <<YAML
+compilation:
+  workers: 4
+  network: "silo-private"
+  cloud_properties:
+    availability_zone: ${SILO_AvailabilityZone}
+    instance_type: c4.large
+
+networks:
+  - name: "silo-public"
+    type: "dynamic"
+    subnets:
+      - range: 192.168.170.0/26
+        cloud_properties:
+          subnet_id: ${SILO_PublicSubnetId}
+  - name: "silo-private"
+    type: "dynamic"
+    subnets:
+      - range: 192.168.170.64/26
+        cloud_properties:
+          subnet_id: ${SILO_PrivateSubnetId}
+  - name: "silo-internal"
+    type: "dynamic"
+    subnets:
+      - range: 192.168.170.128/26
+        cloud_properties:
+          subnet_id: ${SILO_InternalSubnetId}
+
+resource_pools:
+YAML
+
+for INSTANCE_TYPE in \
+  t2.micro \
+  t2.small \
+  t2.medium \
+  m3.medium \
+  m3.large \
+  m3.xlarge \
+  m3.2xlarge \
+  c4.large \
+  c4.xlarge \
+  c4.2xlarge \
+  c4.4xlarge \
+  c4.8xlarge \
+  c3.large \
+  c3.xlarge \
+  c3.2xlarge \
+  c3.4xlarge \
+  c3.8xlarge \
+  g2.2xlarge \
+  g2.8xlarge \
+  r3.large \
+  r3.xlarge \
+  r3.2xlarge \
+  r3.4xlarge \
+  r3.8xlarge \
+  i2.xlarge \
+  i2.2xlarge \
+  i2.4xlarge \
+  i2.8xlarge \
+  d2.xlarge \
+  d2.2xlarge \
+  d2.4xlarge \
+  d2.8xlarge \
+; do
+  for NETWORK in private public internal ; do
+    cat >> cloud-config.yml <<YAML
+  - name: silo-$( echo "${INSTANCE_TYPE}" | tr '.' '-' )-${NETWORK}
+    stemcell:
+      name: bosh-aws-xen-hvm-ubuntu-trusty-go_agent
+      version: latest
+    network: silo-${NETWORK}
+    cloud_properties:
+      availability_zone: ${SILO_AvailabilityZone}
+      instance_type: ${INSTANCE_TYPE}
+YAML
+  done
+done
+
+silobosh update cloud-config cloud-config.yml
