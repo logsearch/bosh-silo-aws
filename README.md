@@ -14,7 +14,7 @@ The network uses `192.168.170.0/24`, split into three subnets:
 Two servers are provisioned:
 
  * Gateway - `192.168.170.4`
- * BOSH Director - `192.168.170.5`
+ * BOSH Director - `192.168.170.68`
 
 BOSH has a login:
 

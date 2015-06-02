@@ -80,11 +80,24 @@ fi
 #
 
 (
-  echo "alias silobosh='bosh -t https://192.168.170.5:25555 -u admin -p admin'" ;
+  echo "alias silobosh='bosh -t https://192.168.170.68:25555 -u admin -p admin'" ;
   set | grep '^SILO_'
 ) > .env
 
 source .env
+
+
+#
+# we're going to use a static UUID for this [*test*] director
+#
+
+if [ ! -f bosh-state.json ] ; then
+  cat > bosh-state.json <<JSON
+{
+    "director_id": "f81d4fae-7dec-11d0-a765-00a0c91e6bf6"
+}
+JSON
+fi
 
 
 #
@@ -93,7 +106,7 @@ source .env
 
 cat > bosh.yml <<YAML
 ---
-name: bosh
+name: ${SILO_Name}
 
 releases:
 - name: bosh
@@ -126,12 +139,12 @@ networks:
 - name: private
   type: manual
   subnets:
-  - range: 192.168.170.0/24
-    gateway: 192.168.170.1
+  - range: 192.168.170.64/26
+    gateway: 192.168.170.65
     dns:
-    - 192.168.170.1
+    - 169.254.169.253
     cloud_properties:
-      subnet: ${SILO_PublicSubnetId}
+      subnet: ${SILO_PrivateSubnetId}
 - name: public
   type: vip
 
@@ -147,6 +160,7 @@ jobs:
   - {name: director, release: bosh}
   - {name: health_monitor, release: bosh}
   - {name: registry, release: bosh}
+  - {name: powerdns, release: bosh}
   - {name: cpi, release: bosh-aws-cpi}
 
   resource_pool: vms
@@ -154,9 +168,15 @@ jobs:
 
   networks:
   - name: private
-    static_ips: [192.168.170.5]
+    static_ips:
+      - 192.168.170.68
 
   properties:
+    dns:
+      recursor: 169.254.169.253
+      address: 192.168.170.68
+      db: *db
+
     nats:
       address: 127.0.0.1
       user: nats
@@ -175,8 +195,8 @@ jobs:
       adapter: postgres
 
     registry:
-      address: 192.168.170.5
-      host: 192.168.170.5
+      address: 192.168.170.68
+      host: 192.168.170.68
       db: *db
       http: {user: admin, password: admin, port: 25777}
       username: admin
@@ -184,7 +204,7 @@ jobs:
       port: 25777
 
     blobstore:
-      address: 192.168.170.5
+      address: 192.168.170.68
       port: 25250
       provider: dav
       director: {user: director, password: director-password}
@@ -211,7 +231,7 @@ jobs:
       - ${SILO_SecuritygroupGlobalLocalAllName}
       region: ${AWS_DEFAULT_REGION}
 
-    agent: {mbus: "nats://nats:nats-password@192.168.170.5:4222"}
+    agent: {mbus: "nats://nats:nats-password@192.168.170.68:4222"}
 
     ntp: &ntp [0.pool.ntp.org, 1.pool.ntp.org]
 
@@ -219,12 +239,12 @@ cloud_provider:
   template: {name: cpi, release: bosh-aws-cpi}
 
   ssh_tunnel:
-    host: 192.168.170.5
+    host: 192.168.170.68
     port: 22
     user: vcap
     private_key: ${SILO_KeyPath}
 
-  mbus: "https://mbus:mbus-password@192.168.170.5:6868"
+  mbus: "https://mbus:mbus-password@192.168.170.68:6868"
 
   properties:
     aws: *aws
@@ -241,31 +261,49 @@ bosh-init deploy bosh.yml
 
 cat > cloud-config.yml <<YAML
 compilation:
-  workers: 4
+  workers: 3
   network: "silo-private"
   cloud_properties:
     availability_zone: ${SILO_AvailabilityZone}
-    instance_type: c4.large
+    instance_type: c3.large
 
 networks:
   - name: "silo-public"
-    type: "dynamic"
     subnets:
       - range: 192.168.170.0/26
+        gateway: 192.168.170.1
+        reserved:
+          - 192.168.170.2
         cloud_properties:
-          subnet_id: ${SILO_PublicSubnetId}
+          security_groups:
+            - ${SILO_SecuritygroupGlobalKnownNetworkName}
+            - ${SILO_SecuritygroupGlobalLocalAllName}
+          subnet: ${SILO_PublicSubnetId}
   - name: "silo-private"
-    type: "dynamic"
     subnets:
       - range: 192.168.170.64/26
+        gateway: 192.168.170.65
+        reserved:
+          - 192.168.170.66
+          - 192.168.170.67
+          - 192.168.170.68
         cloud_properties:
-          subnet_id: ${SILO_PrivateSubnetId}
+          security_groups:
+            - ${SILO_SecuritygroupGlobalKnownNetworkName}
+            - ${SILO_SecuritygroupGlobalLocalAllName}
+          subnet: ${SILO_PrivateSubnetId}
   - name: "silo-internal"
-    type: "dynamic"
     subnets:
       - range: 192.168.170.128/26
+        gateway: 192.168.170.129
+        reserved:
+          - 192.168.170.130
+          - 192.168.170.131
         cloud_properties:
-          subnet_id: ${SILO_InternalSubnetId}
+          security_groups:
+            - ${SILO_SecuritygroupGlobalKnownNetworkName}
+            - ${SILO_SecuritygroupGlobalLocalAllName}
+          subnet: ${SILO_InternalSubnetId}
 
 resource_pools:
 YAML
@@ -309,12 +347,21 @@ for INSTANCE_TYPE in \
   - name: silo-$( echo "${INSTANCE_TYPE}" | tr '.' '-' )-${NETWORK}
     stemcell:
       name: bosh-aws-xen-hvm-ubuntu-trusty-go_agent
-      version: latest
+      # bosh doesn't seem to like "latest" when used at the cloud-config level
+      version: 2978
     network: silo-${NETWORK}
     cloud_properties:
       availability_zone: ${SILO_AvailabilityZone}
       instance_type: ${INSTANCE_TYPE}
 YAML
+
+    if [[ " c4.large c4.xlarge c4.2xlarge c4.4xlarge c4.8xlarge t1.micro t2.micro t2.small t2.medium " =~ " ${INSTANCE_TYPE} " ]] ; then
+      cat >> cloud-config.yml <<YAML
+      ephemeral_disk:
+        size: 8192
+        type: standard
+YAML
+    fi
   done
 done
 
