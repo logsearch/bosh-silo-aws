@@ -1,0 +1,26 @@
+#!/bin/bash
+
+shopt -s expand_aliases
+
+PATH="/usr/local/testutils/bin:${PATH}"
+
+# docker/vcap uids inconsistent
+if [ ! -d /tmp/testutils-whoami ] ; then
+  mkdir /tmp/testutils-whoami
+  cp /usr/local/testutils/ssh/* /tmp/testutils-whoami/
+  chmod 600 /tmp/testutils-whoami/*.pem
+fi
+
+BOSH_TARGET="${BOSH_TARGET:-https://192.168.170.68:25555}"
+BOSH_USERNAME="${BOSH_USERNAME:-admin}"
+BOSH_PASSWORD="${BOSH_PASSWORD:-admin}"
+SSH_KEY_PATH="${SSH_KEY_PATH:-/tmp/testutils-whoami/testutils-20150602a.pem}"
+
+alias silobosh="bosh -t ${BOSH_TARGET} -u ${BOSH_USERNAME} -p ${BOSH_PASSWORD}"
+alias ssh="\ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -i ${SSH_KEY_PATH}"
+
+function fail {
+  echo "FAILURE: ${1}" >&2
+  
+  exit 1
+}

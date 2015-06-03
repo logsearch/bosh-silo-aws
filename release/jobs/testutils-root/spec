@@ -1,0 +1,7 @@
+---
+name: "testutils-root"
+packages: []
+templates:
+  bin/install.erb: bin/install
+  bin/uninstall.erb: bin/uninstall
+properties: {}

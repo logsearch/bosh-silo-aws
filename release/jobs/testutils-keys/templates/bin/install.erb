@@ -1,0 +1,14 @@
+#!/bin/bash
+
+if [ -f ~vcap/.ssh/authorized_keys.testutils ] ; then
+  cp ~vcap/.ssh/authorized_keys.testutils ~vcap/.ssh/authorized_keys
+else
+  cp ~vcap/.ssh/authorized_keys ~vcap/.ssh/authorized_keys.testutils
+fi
+
+cat >> ~vcap/.ssh/authorized_keys <<EOF
+# testutils-keys
+<%= p('testutils.keys').join("\n") %>
+EOF
+
+echo 1 > /var/vcap/sys/run/testutils-keys.pid

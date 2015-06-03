@@ -1,0 +1,5 @@
+#!/bin/bash
+
+echo "vcap ALL=(ALL) NOPASSWD:ALL # testutils-root" >> /etc/sudoers
+
+echo 1 > /var/vcap/sys/run/testutils-root.pid

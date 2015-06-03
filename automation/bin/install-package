@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# args: target-host-or-ip release-name-version stemcell-name-version package-name
+
+set -e
+set -u
+
+. /usr/local/testutils/etc/load-env
+
+ARG_TARGET="${1}"
+ARG_RELEASE="${2}"
+ARG_STEMCELL="${3}"
+ARG_PACKAGE="${4}"
+
+
+CACHE_KEY=$( echo "${ARG_RELEASE}-${ARG_STEMCELL}" | md5sum | awk '{ print $1 }' )
+CACHE_DIR="/tmp/package-${CACHE_KEY}"
+
+# get a copy of the compiled package
+
+if [ ! -d "${CACHE_DIR}" ] ; then
+  mkdir "${CACHE_DIR}"
+  silobosh export compiled_packages "${ARG_RELEASE}" "${ARG_STEMCELL}" "${CACHE_DIR}"
+  tar -xzf ${CACHE_DIR}/*.tgz -C "${CACHE_DIR}"
+fi
+
+# find the blob we need
+
+BLOB_NUM=$( cat "${CACHE_DIR}/compiled_packages.MF" | grep 'package_name: ' | grep -n ": ${ARG_PACKAGE}$" | cut -f1 -d: )
+BLOB_ID=$( cat "${CACHE_DIR}/compiled_packages.MF" | grep 'blobstore_id: ' | sed ${BLOB_NUM}'!d' | awk '{ print $2 }' )
+
+# install the package
+
+cat "${CACHE_DIR}/compiled_packages/blobs/${BLOB_ID}" \
+  | ssh "vcap@${ARG_TARGET}" \
+    "
+      ( [ ! -e /var/vcap/packages/${ARG_PACKAGE} ] || sudo rm -fr /var/vcap/packages/${ARG_PACKAGE} ) \
+      && sudo mkdir -p /var/vcap/packages/${ARG_PACKAGE} \
+      && cd /var/vcap/packages/${ARG_PACKAGE} \
+      && sudo tar -xzf -
+    "

@@ -1,0 +1,5 @@
+check process testutils-data
+  with pidfile /var/vcap/sys/run/testutils-data.pid
+  start program "/var/vcap/jobs/testutils-data/bin/install"
+  stop program "/var/vcap/jobs/testutils-data/bin/uninstall"
+  group vcap

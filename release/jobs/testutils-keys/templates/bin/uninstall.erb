@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if [ -f ~vcap/.ssh/authorized_keys.testutils ] ; then
+  cp ~vcap/.ssh/authorized_keys.testutils ~vcap/.ssh/authorized_keys
+  rm ~vcap/.ssh/authorized_keys.testutils
+fi
+
+rm /var/vcap/sys/run/testutils-keys.pid

@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# args: deployment-name
+
+set -e
+set -u
+
+. /usr/local/testutils/etc/load-env
+
+silobosh deployments | grep "${1}" | awk '{ print $6 }'

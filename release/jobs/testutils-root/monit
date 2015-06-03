@@ -1,0 +1,5 @@
+check process testutils-root
+  with pidfile /var/vcap/sys/run/testutils-root.pid
+  start program "/var/vcap/jobs/testutils-root/bin/install"
+  stop program "/var/vcap/jobs/testutils-root/bin/uninstall"
+  group vcap

@@ -1,0 +1,5 @@
+check process testutils-keys
+  with pidfile /var/vcap/sys/run/testutils-keys.pid
+  start program "/var/vcap/jobs/testutils-keys/bin/install"
+  stop program "/var/vcap/jobs/testutils-keys/bin/uninstall"
+  group vcap

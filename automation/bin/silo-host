@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# args: hostname
+
+set -e
+set -u
+
+. /usr/local/testutils/etc/load-env
+
+dig @192.168.170.68 "${1}" +short

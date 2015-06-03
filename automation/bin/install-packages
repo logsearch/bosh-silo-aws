@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# args: target-host-or-ip release-name-version stemcell-name-version package-name...
+
+set -e
+set -u
+
+ARG_TARGET="${1}" ; shift 1
+ARG_RELEASE="${2}" ; shift 1
+ARG_STEMCELL="${3}" ; shift 1
+
+for ARG_PACKAGE in "$@" ; do
+  /usr/local/testutils/install-package "${ARG_TARGET}" "${ARG_RELEASE}" "${ARG_STEMCELL}" "${ARG_PACKAGE}"
+done

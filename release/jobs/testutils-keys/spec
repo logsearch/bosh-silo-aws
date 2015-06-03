@@ -1,0 +1,11 @@
+---
+name: "testutils-keys"
+packages: []
+templates:
+  bin/install.erb: bin/install
+  bin/uninstall.erb: bin/uninstall
+properties:
+  testutils.keys:
+    default:
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQC0usfDVveKYYw6s6/aOTnwKXsOIbp4ySksVWtwGZ8HO+5f9Ne5N+d3+vbeCAS6LabTvAw5h1PdNk/lbIXyqc1IcvM+rFbs0I1v+Wp2gQogqClSfq1q5ldKZC9e54Gbrm3tmYhuoYJJFPGBOEei5yHBR5HBNmJZ32tTtCyTsUdfQw== vcap@testutils-20150602a"
+    description: "A list of keys to install into ~vcap/.ssh/authorized_keys"

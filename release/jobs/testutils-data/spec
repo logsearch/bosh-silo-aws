@@ -1,0 +1,9 @@
+---
+name: "testutils-data"
+packages: []
+templates:
+  bin/install.erb: bin/install
+  bin/uninstall.erb: bin/uninstall
+properties:
+  testutils.data:
+    description: "An array of files to dump to /var/vcap/jobs/testutils-data/* (items should be { name => contents })"

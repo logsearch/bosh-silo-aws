@@ -1,0 +1,12 @@
+#!/bin/bash
+
+cd /var/vcap/jobs/testutils-data
+
+<% p('testutils.data').each do | file | filename, filedata = file.first %>
+cat > "<%= filename %>" <<TESTUTILS_EOF
+<%= filedata %>
+TESTUTILS_EOF
+
+<% end %>
+
+echo 1 > /var/vcap/sys/run/testutils-data.pid
